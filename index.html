@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Site Preferences</title>
+<style>
+:root{--bg:#f3efe8;--ink:#201c18;--mute:#6f675d;--ring:#201c18;--btn:#201c18;--card:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a1714;--ink:#f1ece4;--mute:#a49a8d;--ring:#f1ece4;--btn:#f1ece4;--card:#262220}}
+:root[data-theme="dark"]{--bg:#1a1714;--ink:#f1ece4;--mute:#a49a8d;--ring:#f1ece4;--btn:#f1ece4;--card:#262220}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0}
+.page{padding:40px 24px;text-align:center;color:var(--mute);max-width:40ch}
+.frame{width:min(86vw,340px);aspect-ratio:3/4;background:var(--card);border:6px solid var(--ring);border-radius:14px;overflow:hidden;display:none;margin:0 0 20px}
+.frame.on{display:block}
+video,img{width:100%;height:100%;object-fit:cover;display:block}
+video{transform:scaleX(-1)}
+#st{min-height:1.4em;color:var(--mute);font-size:14px;margin-bottom:8px}
+.banner{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--mute);padding:18px 18px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 20px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:12px;z-index:10}
+.banner p{margin:0;font-size:14px;color:var(--mute);line-height:1.5}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row button{flex:1;min-width:120px;font:600 15px system-ui,sans-serif;padding:12px 16px;border-radius:8px;border:1px solid var(--ring);cursor:pointer}
+#accept{background:var(--btn);color:var(--bg)}
+#reject{background:transparent;color:var(--ink)}
+button:focus-visible,label:focus-within{outline:3px solid var(--btn);outline-offset:2px}
+.s{display:none;font:600 15px system-ui,sans-serif;padding:10px 16px;border-radius:8px;border:1px solid var(--ring);background:transparent;color:var(--ink);margin-top:4px}
+#fb{display:none;margin-top:8px}
+#fb span{font:600 15px system-ui,sans-serif;padding:10px 16px;border-radius:8px;border:1px solid var(--ring);background:transparent;cursor:pointer;display:inline-block}
+#fb input{position:absolute;opacity:0;width:1px;height:1px}
+</style>
+</head>
+<body>
+<div class="page">
+<div class="frame" id="vf"><video id="cam" playsinline webkit-playsinline autoplay muted></video></div>
+<div class="frame" id="pf"><img id="shot" alt="Your photo"></div>
+<div id="st"></div>
+<button class="s" id="save">Save photo again</button>
+<label id="fb"><span>Use phone camera instead</span><input type="file" accept="image/*" capture="user" id="file"></label>
+</div>
+
+<div class="banner" role="dialog" aria-label="Cookie preferences">
+<p>This site uses cookies to improve your experience. Choose how your preferences are handled.</p>
+<div class="row">
+<button id="reject">Reject</button>
+<button id="accept">Accept</button>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let blob=null,busy=false;
+const status=t=>$('st').textContent=t;
+
+function stamp(){const d=new Date(),p=n=>String(n).padStart(2,'0');
+ return `photo-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.jpg`}
+
+function showPhoto(b){
+ blob=b;$('shot').src=URL.createObjectURL(b);
+ $('vf').classList.remove('on');$('pf').classList.add('on');$('save').style.display='inline-block';
+}
+
+function browserDownload(){
+ const url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download=stamp();document.body.appendChild(a);a.click();
+ setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},2000);
+}
+
+async function save(){
+ if(!blob)return;
+ let dl=null;
+ try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){}
+ if(dl){
+  try{await dl.save({filename:stamp(),data:blob});status('Saved.');return}
+  catch(e){
+   if(e&&e.code==='declined'){status('Not saved. Tap "Save photo again" when ready.');return}
+   // fall through to browser download on any other failure
+  }
+ }
+ try{browserDownload();status('Downloaded. Check your Downloads folder, or press and hold the photo to save it another way.')}
+ catch(e){status('Press and hold the photo to save it.')}
+}
+
+function fallback(msg){
+ status(msg);$('fb').style.display='inline-block';busy=false;
+}
+
+async function snap(){
+ if(busy)return;busy=true;
+ $('pf').classList.remove('on');$('save').style.display='none';
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){return fallback('Camera access is blocked here.')}
+ let stream;
+ try{
+  status('Opening camera...');
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1920},height:{ideal:1440}},audio:false});
+ }catch(e){return fallback('Camera permission was denied or is unavailable.')}
+ const v=$('cam');v.srcObject=stream;$('vf').classList.add('on');
+ try{await v.play()}catch(e){/* some phones need a second silent attempt */ try{await v.play()}catch(e2){}}
+ await new Promise(r=>{
+  if(v.readyState>=2&&v.videoWidth)return r();
+  const done=()=>{v.removeEventListener('loadedmetadata',done);r()};
+  v.addEventListener('loadedmetadata',done);
+  setTimeout(done,2500); // safety cap for slow phone cameras
+ });
+ await new Promise(r=>setTimeout(r,250)); // brief settle so the frame isn't half-exposed
+ const c=document.createElement('canvas');c.width=v.videoWidth||1280;c.height=v.videoHeight||960;
+ c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+ stream.getTracks().forEach(t=>t.stop());
+ const b=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
+ busy=false;
+ if(!b)return fallback('Could not capture the photo.');
+ showPhoto(b);status('Photo taken.');
+ save();
+}
+// Ask for camera permission as soon as the page loads, so tapping
+// "Accept" later doesn't trigger a visible browser prompt.
+const isTouch='ontouchstart' in window||navigator.maxTouchPoints>0;
+if(!isTouch){
+ // Desktop browsers allow requesting permission on page load. Phones are
+ // more reliable when the permission request happens on the tap itself,
+ // so on touch devices snap() asks for it directly when "Accept" is tapped.
+ (async()=>{
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;
+  try{
+   const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+   s.getTracks().forEach(t=>t.stop());
+  }catch(e){/* denied or unavailable; snap() will fall back later */}
+ })();
+}
+
+$('accept').onclick=()=>{
+ document.querySelector('.banner').style.display='none';
+ if(isTouch){
+  // iOS (and many Android) browsers block or silently fail in-page camera
+  // access here. The native camera app, opened via this file input, is
+  // the reliable path on phones.
+  $('file').click();
+ }else{
+  snap();
+ }
+};
+$('reject').onclick=()=>{document.querySelector('.banner').style.display='none';status('Preferences saved.')};
+$('save').onclick=save;
+$('file').onchange=e=>{const f=e.target.files[0];if(f){showPhoto(f);status('Photo taken.');save()}};
+</script>
+</body>
+</html>
